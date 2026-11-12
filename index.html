@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<title>DropTunes Web v2.1</title>
+<title>DropTunes Web v2.2</title>
 <style>
   :root { color-scheme: dark; }
   * { box-sizing: border-box; }
@@ -11,7 +11,7 @@
   header { padding: 14px 16px 6px; }
   h1 { font-size: 19px; margin: 0; }
   h2 { font-size: 14px; color: #9aa; margin: 18px 0 8px; }
-  main { padding: 0 16px 230px; }
+  main { padding: 0 16px 118px; }
   label { display: block; font-size: 12px; color: #9aa; margin-top: 10px; }
   input[type="text"], input[type="password"] {
     width: 100%; padding: 10px; margin-top: 4px; border-radius: 8px;
@@ -51,17 +51,17 @@
   }
   #tagEditor .tagchip button { padding: 0 4px; background: transparent; color: #f88; font-size: 12px; }
   #player {
-    position: fixed; left: 0; right: 0; bottom: 0; padding: 12px 16px calc(12px + env(safe-area-inset-bottom));
+    position: fixed; left: 0; right: 0; bottom: 0; padding: 8px 12px calc(8px + env(safe-area-inset-bottom));
     background: rgba(22,22,28,.96); border-top: 1px solid #2c2c35;
   }
-  #nowTitle { font-size: 14px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-  #player .controls { display: flex; justify-content: center; gap: 26px; margin: 8px 0 4px; }
-  #player .controls button { font-size: 18px; padding: 10px 18px; }
-  #player .modes { display: flex; justify-content: center; gap: 8px; margin-top: 6px; flex-wrap: wrap; }
-  #player .modes button { background: #2a2a33; color: #aaa; padding: 7px 12px; font-size: 12px; }
-  #player .modes button.on { background: #2f6fed; color: #fff; }
-  #seek { width: 100%; }
-  .times { display: flex; justify-content: space-between; font-size: 11px; color: #999; }
+  #player .titlerow { display: flex; align-items: baseline; gap: 10px; }
+  #nowTitle { flex: 1; font-size: 13px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  #player .ptime { font-size: 11px; color: #999; white-space: nowrap; }
+  #player .controls { display: flex; justify-content: center; align-items: center; gap: 14px; margin-top: 2px; }
+  #player .controls button { font-size: 17px; padding: 7px 13px; }
+  #player .controls button.mode { background: #2a2a33; color: #888; font-size: 14px; padding: 7px 11px; }
+  #player .controls button.mode.on { background: #2f6fed; color: #fff; }
+  #seek { width: 100%; margin: 2px 0 0; }
   #log {
     font-family: ui-monospace, Menlo, monospace; font-size: 11px; line-height: 1.5;
     background: #0a0a0d; border: 1px solid #26262e; border-radius: 8px;
@@ -74,7 +74,7 @@
 </head>
 <body>
 <header>
-  <h1>DropTunes Web v2.1</h1>
+  <h1>DropTunes Web v2.2</h1>
   <p class="hint">Brave の<b>タブ</b>で開いたまま使う前提。シャッフル／リピート／★・タグ絞り込み対応。</p>
 </header>
 <main>
@@ -127,18 +127,17 @@
 </main>
 
 <div id="player">
-  <div id="nowTitle">（未再生）</div>
+  <div class="titlerow">
+    <div id="nowTitle">（未再生）</div>
+    <div class="ptime"><span id="curTime">0:00</span> / <span id="durTime">0:00</span></div>
+  </div>
   <input id="seek" type="range" min="0" max="1000" value="0">
-  <div class="times"><span id="curTime">0:00</span><span id="durTime">0:00</span></div>
   <div class="controls">
+    <button id="shuffleBtn" class="mode" aria-label="シャッフル切替">🔀</button>
     <button id="prevBtn" aria-label="前へ">⏮</button>
     <button id="playBtn" aria-label="再生/停止">▶</button>
     <button id="nextBtn" aria-label="次へ">⏭</button>
-  </div>
-  <div class="modes">
-    <button id="shuffleBtn">🔀 シャッフル: OFF</button>
-    <button id="repeatBtn">🔁 リピート: なし</button>
-    <button id="toEndBtn">テスト用: 残り15秒へ</button>
+    <button id="repeatBtn" class="mode" aria-label="リピート切替">🔁</button>
   </div>
 </div>
 
@@ -148,14 +147,14 @@
 <script>
 "use strict";
 /* ============================================================
-   DropTunes Web v2.1
+   DropTunes Web v2.2
    v1 の実績ある再生経路 (単一 <audio> 要素 + 先読み + Media Session) は不変。
    v2 の追加はすべて「キューの組み立て」と「絞り込み」の層だけ:
    - シャッフル (履歴を戻れる順序方式、再一周時は直前曲の連続を回避)
    - リピート3段階 (なし / キュー全体 / 1曲)
    - ★ とタグ (localStorage、パス紐付け) による絞り込み
    - 再生キュー = 曲をタップした時点で表示されていた絞り込み結果のスナップショット
-   v2.1 の追加は「起動まわり」だけ:
+   v2.2 の追加は「起動まわり」だけ:
    - 前回の曲リストを localStorage にキャッシュし、開いた瞬間に即表示する
    - 設定 (App Key / Refresh Token) があれば裏で自動的に最新化する
    - 自動更新に失敗しても前回のリストが残り、そのまま再生できる
@@ -654,11 +653,11 @@ function updateMediaSession(track) {
 
 // ---------- 再生モードの切替 ----------
 function renderModeButtons() {
-  els.shuffleBtn.textContent = "🔀 シャッフル: " + (shuffleOn ? "ON" : "OFF");
-  els.shuffleBtn.className = shuffleOn ? "on" : "";
-  const labels = { off: "なし", queue: "キュー全体", one: "1曲" };
-  els.repeatBtn.textContent = (repeatMode === "one" ? "🔂" : "🔁") + " リピート: " + labels[repeatMode];
-  els.repeatBtn.className = repeatMode !== "off" ? "on" : "";
+  // アイコンのみ表示 (1行レイアウト)。状態は色で示す: ON=青、リピート1曲は 🔂
+  els.shuffleBtn.textContent = "🔀";
+  els.shuffleBtn.className = "mode" + (shuffleOn ? " on" : "");
+  els.repeatBtn.textContent = repeatMode === "one" ? "🔂" : "🔁";
+  els.repeatBtn.className = "mode" + (repeatMode !== "off" ? " on" : "");
 }
 els.shuffleBtn.addEventListener("click", () => {
   shuffleOn = !shuffleOn;
@@ -729,13 +728,6 @@ els.playBtn.addEventListener("click", async () => {
 });
 document.getElementById("nextBtn").addEventListener("click", () => advance(false, "手動/次へ"));
 document.getElementById("prevBtn").addEventListener("click", () => goPrev("手動/前へ"));
-document.getElementById("toEndBtn").addEventListener("click", () => {
-  if (audio.duration && isFinite(audio.duration)) {
-    audio.currentTime = Math.max(0, audio.duration - 15);
-    log("テスト用ジャンプ: 残り15秒へ");
-  }
-});
-
 // ---------- 一覧取得 (手動・起動時自動の共通処理) ----------
 async function refreshList(auto) {
   setStatus(auto ? "最新のリストを取得中…" : "読み込み中…");
@@ -775,7 +767,7 @@ loadSettings();
 loadLibrary();
 loadPlayerPrefs();
 renderModeButtons();
-log("DropTunes Web v2.1 起動。UA: " + navigator.userAgent.slice(0, 90));
+log("DropTunes Web v2.2 起動。UA: " + navigator.userAgent.slice(0, 90));
 // 前回のリストがあれば即表示し、設定済みなら裏で最新化する
 if (loadListCache()) setStatus("前回のリストを表示中");
 if (els.appKey.value.trim() && els.refreshToken.value.trim()) {
