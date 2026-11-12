@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<title>DropTunes Web v2.2</title>
+<title>DropTunes Web v2.3</title>
 <style>
   :root { color-scheme: dark; }
   * { box-sizing: border-box; }
@@ -42,8 +42,9 @@
   ul#tracks li .ttags { display: block; font-size: 11px; color: #8ab; margin-top: 2px; }
   ul#tracks li small { color: #888; }
   #tagEditor {
-    display: none; margin-top: 12px; padding: 12px; border: 1px solid #333;
-    border-radius: 10px; background: #17171d;
+    display: none; position: fixed; left: 10px; right: 10px; bottom: 126px; z-index: 60;
+    padding: 12px; border: 1px solid #3a3a46; border-radius: 12px; background: #1b1b22;
+    box-shadow: 0 10px 34px rgba(0,0,0,.65); max-height: 55vh; overflow-y: auto;
   }
   #tagEditor .tagchip {
     display: inline-flex; gap: 6px; align-items: center; background: #23232b;
@@ -74,7 +75,7 @@
 </head>
 <body>
 <header>
-  <h1>DropTunes Web v2.2</h1>
+  <h1>DropTunes Web v2.3</h1>
   <p class="hint">Brave の<b>タブ</b>で開いたまま使う前提。シャッフル／リピート／★・タグ絞り込み対応。</p>
 </header>
 <main>
@@ -147,14 +148,14 @@
 <script>
 "use strict";
 /* ============================================================
-   DropTunes Web v2.2
+   DropTunes Web v2.3
    v1 の実績ある再生経路 (単一 <audio> 要素 + 先読み + Media Session) は不変。
    v2 の追加はすべて「キューの組み立て」と「絞り込み」の層だけ:
    - シャッフル (履歴を戻れる順序方式、再一周時は直前曲の連続を回避)
    - リピート3段階 (なし / キュー全体 / 1曲)
    - ★ とタグ (localStorage、パス紐付け) による絞り込み
    - 再生キュー = 曲をタップした時点で表示されていた絞り込み結果のスナップショット
-   v2.2 の追加は「起動まわり」だけ:
+   v2.3 の追加は「起動まわり」だけ:
    - 前回の曲リストを localStorage にキャッシュし、開いた瞬間に即表示する
    - 設定 (App Key / Refresh Token) があれば裏で自動的に最新化する
    - 自動更新に失敗しても前回のリストが残り、そのまま再生できる
@@ -467,7 +468,7 @@ function openTagEditor(track) {
   els.tagTargetName.textContent = titleOf(track);
   els.tagEditor.style.display = "block";
   renderTagChips();
-  els.tagEditor.scrollIntoView({ behavior: "smooth", block: "nearest" });
+
 }
 function renderTagChips() {
   els.tagChips.innerHTML = "";
@@ -724,7 +725,12 @@ els.seek.addEventListener("input", () => {
 });
 els.playBtn.addEventListener("click", async () => {
   if (audio.src) { audio.paused ? audio.play() : audio.pause(); }
-  else if (visibleTracks.length) { buildQueueAndPlay(0); }
+  else if (visibleTracks.length) {
+    // 未再生から再生ボタン: シャッフルONなら開始曲もランダムに選ぶ
+    const start = shuffleOn ? Math.floor(Math.random() * visibleTracks.length) : 0;
+    if (shuffleOn) log("シャッフル開始: ランダムな曲から再生");
+    buildQueueAndPlay(start);
+  }
 });
 document.getElementById("nextBtn").addEventListener("click", () => advance(false, "手動/次へ"));
 document.getElementById("prevBtn").addEventListener("click", () => goPrev("手動/前へ"));
@@ -767,7 +773,7 @@ loadSettings();
 loadLibrary();
 loadPlayerPrefs();
 renderModeButtons();
-log("DropTunes Web v2.2 起動。UA: " + navigator.userAgent.slice(0, 90));
+log("DropTunes Web v2.3 起動。UA: " + navigator.userAgent.slice(0, 90));
 // 前回のリストがあれば即表示し、設定済みなら裏で最新化する
 if (loadListCache()) setStatus("前回のリストを表示中");
 if (els.appKey.value.trim() && els.refreshToken.value.trim()) {
