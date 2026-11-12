@@ -1,0 +1,786 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>DropTunes Web v2.1</title>
+<style>
+  :root { color-scheme: dark; }
+  * { box-sizing: border-box; }
+  body { margin: 0; font-family: -apple-system, "Hiragino Sans", sans-serif; background: #101014; color: #eee; }
+  header { padding: 14px 16px 6px; }
+  h1 { font-size: 19px; margin: 0; }
+  h2 { font-size: 14px; color: #9aa; margin: 18px 0 8px; }
+  main { padding: 0 16px 230px; }
+  label { display: block; font-size: 12px; color: #9aa; margin-top: 10px; }
+  input[type="text"], input[type="password"] {
+    width: 100%; padding: 10px; margin-top: 4px; border-radius: 8px;
+    border: 1px solid #333; background: #1a1a20; color: #eee; font-size: 14px;
+  }
+  button {
+    padding: 10px 14px; border-radius: 999px; border: 0; cursor: pointer;
+    background: #2f6fed; color: #fff; font-size: 14px;
+  }
+  button.secondary { background: #2a2a33; color: #ddd; }
+  button:disabled { opacity: .45; }
+  button.small { padding: 6px 10px; font-size: 12px; }
+  button.iconbtn { background: transparent; padding: 6px 8px; font-size: 16px; color: #bbb; }
+  button.iconbtn.on { color: #ffd34d; }
+  .row { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+  #status { font-size: 13px; color: #fc6; min-height: 1.2em; margin-top: 10px; white-space: pre-wrap; }
+  .chips { display: flex; gap: 6px; flex-wrap: wrap; margin: 8px 0 2px; }
+  .chips button { background: #23232b; color: #bbb; padding: 6px 12px; font-size: 12px; }
+  .chips button.on { background: #2f6fed; color: #fff; }
+  #queueInfo { font-size: 11px; color: #888; margin-top: 4px; }
+  ul#tracks { list-style: none; margin: 8px 0 0; padding: 0; }
+  ul#tracks li {
+    padding: 10px; border-bottom: 1px solid #26262e;
+    display: flex; align-items: center; gap: 6px;
+  }
+  ul#tracks li .tname { flex: 1; cursor: pointer; min-width: 0; }
+  ul#tracks li.playing .tname { color: #7db4ff; }
+  ul#tracks li .ttags { display: block; font-size: 11px; color: #8ab; margin-top: 2px; }
+  ul#tracks li small { color: #888; }
+  #tagEditor {
+    display: none; margin-top: 12px; padding: 12px; border: 1px solid #333;
+    border-radius: 10px; background: #17171d;
+  }
+  #tagEditor .tagchip {
+    display: inline-flex; gap: 6px; align-items: center; background: #23232b;
+    border-radius: 999px; padding: 4px 10px; font-size: 12px; margin: 0 4px 6px 0;
+  }
+  #tagEditor .tagchip button { padding: 0 4px; background: transparent; color: #f88; font-size: 12px; }
+  #player {
+    position: fixed; left: 0; right: 0; bottom: 0; padding: 12px 16px calc(12px + env(safe-area-inset-bottom));
+    background: rgba(22,22,28,.96); border-top: 1px solid #2c2c35;
+  }
+  #nowTitle { font-size: 14px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  #player .controls { display: flex; justify-content: center; gap: 26px; margin: 8px 0 4px; }
+  #player .controls button { font-size: 18px; padding: 10px 18px; }
+  #player .modes { display: flex; justify-content: center; gap: 8px; margin-top: 6px; flex-wrap: wrap; }
+  #player .modes button { background: #2a2a33; color: #aaa; padding: 7px 12px; font-size: 12px; }
+  #player .modes button.on { background: #2f6fed; color: #fff; }
+  #seek { width: 100%; }
+  .times { display: flex; justify-content: space-between; font-size: 11px; color: #999; }
+  #log {
+    font-family: ui-monospace, Menlo, monospace; font-size: 11px; line-height: 1.5;
+    background: #0a0a0d; border: 1px solid #26262e; border-radius: 8px;
+    padding: 10px; height: 220px; overflow-y: auto; white-space: pre-wrap; word-break: break-all;
+  }
+  details { margin-top: 14px; }
+  summary { cursor: pointer; color: #9aa; font-size: 13px; }
+  .hint { font-size: 12px; color: #888; line-height: 1.6; }
+</style>
+</head>
+<body>
+<header>
+  <h1>DropTunes Web v2.1</h1>
+  <p class="hint">Brave の<b>タブ</b>で開いたまま使う前提。シャッフル／リピート／★・タグ絞り込み対応。</p>
+</header>
+<main>
+  <details id="settingsBox" open>
+    <summary>設定（App Key / Refresh Token / フォルダ）</summary>
+    <label>App Key
+      <input id="appKey" type="text" autocomplete="off" autocapitalize="off" spellcheck="false">
+    </label>
+    <label>Refresh Token（端末内 localStorage にだけ保存される）
+      <input id="refreshToken" type="password" autocomplete="off" autocapitalize="off" spellcheck="false">
+    </label>
+    <label>フォルダパス（例: /Music、ルートは /）
+      <input id="folderPath" type="text" autocomplete="off" autocapitalize="off" spellcheck="false" value="/Music">
+    </label>
+    <div class="row" style="margin-top:12px">
+      <button id="saveSettings" class="secondary">設定を保存</button>
+      <button id="loadTracks">フォルダを読み込む</button>
+    </div>
+  </details>
+
+  <div id="status"></div>
+
+  <h2>曲一覧</h2>
+  <div class="chips" id="chips"></div>
+  <div id="queueInfo"></div>
+  <ul id="tracks"></ul>
+
+  <div id="tagEditor">
+    <div style="font-size:13px">タグ編集: <b id="tagTargetName"></b></div>
+    <div id="tagChips" style="margin-top:8px"></div>
+    <div class="row" style="margin-top:6px">
+      <input id="newTag" type="text" placeholder="新しいタグ名" style="flex:1; width:auto" autocomplete="off">
+      <button id="addTag" class="small">追加</button>
+      <button id="closeTagEditor" class="small secondary">閉じる</button>
+    </div>
+    <p class="hint">タグはこの端末のブラウザ内にだけ保存される。Dropbox 側で曲を移動・リネームするとタグは外れる。</p>
+  </div>
+
+  <h2>診断ログ</h2>
+  <div class="row" style="margin-bottom:8px">
+    <button id="copyLog" class="secondary">ログをコピー</button>
+    <button id="clearLog" class="secondary">ログを消す</button>
+  </div>
+  <div id="log"></div>
+  <p class="hint">
+    使い方: 絞り込み（全曲／★／タグ）で見えている曲が、そのまま再生キューの範囲になる。
+    曲をタップした時点でキューが確定するから、再生中に絞り込みを変えても今のキューは崩れない。
+    リピートは「なし → キュー全体 → 1曲」の順に切り替わる。
+  </p>
+</main>
+
+<div id="player">
+  <div id="nowTitle">（未再生）</div>
+  <input id="seek" type="range" min="0" max="1000" value="0">
+  <div class="times"><span id="curTime">0:00</span><span id="durTime">0:00</span></div>
+  <div class="controls">
+    <button id="prevBtn" aria-label="前へ">⏮</button>
+    <button id="playBtn" aria-label="再生/停止">▶</button>
+    <button id="nextBtn" aria-label="次へ">⏭</button>
+  </div>
+  <div class="modes">
+    <button id="shuffleBtn">🔀 シャッフル: OFF</button>
+    <button id="repeatBtn">🔁 リピート: なし</button>
+    <button id="toEndBtn">テスト用: 残り15秒へ</button>
+  </div>
+</div>
+
+<!-- 再生はこの単一の <audio> 要素だけが担う (Web Audio API は使わない) -->
+<audio id="audio" preload="auto"></audio>
+
+<script>
+"use strict";
+/* ============================================================
+   DropTunes Web v2.1
+   v1 の実績ある再生経路 (単一 <audio> 要素 + 先読み + Media Session) は不変。
+   v2 の追加はすべて「キューの組み立て」と「絞り込み」の層だけ:
+   - シャッフル (履歴を戻れる順序方式、再一周時は直前曲の連続を回避)
+   - リピート3段階 (なし / キュー全体 / 1曲)
+   - ★ とタグ (localStorage、パス紐付け) による絞り込み
+   - 再生キュー = 曲をタップした時点で表示されていた絞り込み結果のスナップショット
+   v2.1 の追加は「起動まわり」だけ:
+   - 前回の曲リストを localStorage にキャッシュし、開いた瞬間に即表示する
+   - 設定 (App Key / Refresh Token) があれば裏で自動的に最新化する
+   - 自動更新に失敗しても前回のリストが残り、そのまま再生できる
+   ============================================================ */
+
+const AUDIO_EXTS = new Set(["mp3","m4a","aac","wav","aif","aiff","flac","alac","caf","mp4"]);
+const LS_KEY = "droptunes-web-settings-v1";
+const LS_LIB = "droptunes-web-library-v1";
+const LS_PLAYER = "droptunes-web-player-v1";
+const LS_LISTCACHE = "droptunes-web-listcache-v1";
+
+const els = {
+  appKey: document.getElementById("appKey"),
+  refreshToken: document.getElementById("refreshToken"),
+  folderPath: document.getElementById("folderPath"),
+  status: document.getElementById("status"),
+  tracks: document.getElementById("tracks"),
+  chips: document.getElementById("chips"),
+  queueInfo: document.getElementById("queueInfo"),
+  nowTitle: document.getElementById("nowTitle"),
+  seek: document.getElementById("seek"),
+  curTime: document.getElementById("curTime"),
+  durTime: document.getElementById("durTime"),
+  playBtn: document.getElementById("playBtn"),
+  shuffleBtn: document.getElementById("shuffleBtn"),
+  repeatBtn: document.getElementById("repeatBtn"),
+  log: document.getElementById("log"),
+  settingsBox: document.getElementById("settingsBox"),
+  tagEditor: document.getElementById("tagEditor"),
+  tagTargetName: document.getElementById("tagTargetName"),
+  tagChips: document.getElementById("tagChips"),
+  newTag: document.getElementById("newTag"),
+};
+const audio = document.getElementById("audio");
+
+let allTracks = [];        // フォルダ内の全曲 {name, pathDisplay, pathLower, size}
+let visibleTracks = [];    // 現在の絞り込み結果
+let queue = [];            // 再生キュー (visibleTracks のスナップショット)
+let order = [];            // queue の再生順 (queue のインデックス配列)
+let cursor = -1;           // order 内の現在位置
+let nextCycleOrder = null; // シャッフル+キューリピート用に先に決めた次周の順序
+
+let shuffleOn = false;
+let repeatMode = "off";    // "off" | "queue" | "one"
+let filter = { type: "all", tag: null }; // type: "all" | "fav" | "tag"
+
+let library = { favs: [], tags: {} };    // favs: [pathLower], tags: {pathLower: [tag]}
+let tagTarget = null;                    // タグ編集中の track
+
+let accessToken = null;
+let accessTokenExpiry = 0;
+const linkCache = new Map(); // pathLower -> {url, fetchedAt}
+const LINK_TTL_MS = 3.5 * 60 * 60 * 1000; // 一時リンクは約4時間有効。余裕を見て3.5時間
+
+// ---------- ログ ----------
+function log(msg) {
+  const t = new Date();
+  const hh = String(t.getHours()).padStart(2, "0");
+  const mm = String(t.getMinutes()).padStart(2, "0");
+  const ss = String(t.getSeconds()).padStart(2, "0");
+  els.log.textContent += `[${hh}:${mm}:${ss}] ${msg}\n`;
+  els.log.scrollTop = els.log.scrollHeight;
+}
+document.getElementById("clearLog").addEventListener("click", () => { els.log.textContent = ""; });
+document.getElementById("copyLog").addEventListener("click", async () => {
+  try { await navigator.clipboard.writeText(els.log.textContent); setStatus("ログをコピーしたよ"); }
+  catch (e) { setStatus("コピーに失敗。ログ範囲を長押しで選んでコピーして"); }
+});
+
+function setStatus(msg) { els.status.textContent = msg; }
+
+// ---------- 設定・ライブラリ・再生モードの保存 ----------
+function loadSettings() {
+  try {
+    const s = JSON.parse(localStorage.getItem(LS_KEY) || "{}");
+    if (s.appKey) els.appKey.value = s.appKey;
+    if (s.refreshToken) els.refreshToken.value = s.refreshToken;
+    if (s.folderPath) els.folderPath.value = s.folderPath;
+    if (s.appKey && s.refreshToken) els.settingsBox.open = false;
+  } catch (e) { /* 初回は空でよい */ }
+}
+function saveSettings() {
+  localStorage.setItem(LS_KEY, JSON.stringify({
+    appKey: els.appKey.value.trim(),
+    refreshToken: els.refreshToken.value.trim(),
+    folderPath: els.folderPath.value.trim() || "/Music",
+  }));
+  accessToken = null; accessTokenExpiry = 0; linkCache.clear();
+  log("設定を保存した");
+}
+document.getElementById("saveSettings").addEventListener("click", () => { saveSettings(); setStatus("保存したよ"); });
+
+function loadLibrary() {
+  try {
+    const s = JSON.parse(localStorage.getItem(LS_LIB) || "{}");
+    if (Array.isArray(s.favs)) library.favs = s.favs;
+    if (s.tags && typeof s.tags === "object") library.tags = s.tags;
+  } catch (e) { /* 空で開始 */ }
+}
+function saveLibrary() { localStorage.setItem(LS_LIB, JSON.stringify(library)); }
+
+function loadPlayerPrefs() {
+  try {
+    const s = JSON.parse(localStorage.getItem(LS_PLAYER) || "{}");
+    if (typeof s.shuffleOn === "boolean") shuffleOn = s.shuffleOn;
+    if (["off", "queue", "one"].includes(s.repeatMode)) repeatMode = s.repeatMode;
+  } catch (e) { /* 既定値 */ }
+}
+function savePlayerPrefs() {
+  localStorage.setItem(LS_PLAYER, JSON.stringify({ shuffleOn, repeatMode }));
+}
+
+function normalizeFolderPath(raw) {
+  const t = (raw || "").trim();
+  if (t === "" || t === "/") return "";
+  return t.startsWith("/") ? t : "/" + t;
+}
+
+// ---------- 曲リストのキャッシュ (開いた瞬間に前回のリストを出すため) ----------
+function saveListCache() {
+  try {
+    localStorage.setItem(LS_LISTCACHE, JSON.stringify({
+      folder: normalizeFolderPath(els.folderPath.value),
+      tracks: allTracks,
+      savedAt: Date.now(),
+    }));
+  } catch (e) { /* 容量超過などは無視 (キャッシュが無くても動作はする) */ }
+}
+function loadListCache() {
+  try {
+    const c = JSON.parse(localStorage.getItem(LS_LISTCACHE) || "null");
+    if (!c || !Array.isArray(c.tracks) || !c.tracks.length) return false;
+    if (c.folder !== normalizeFolderPath(els.folderPath.value)) return false;
+    allTracks = c.tracks;
+    applyFilter();
+    log("前回のリストを表示 (キャッシュ: " + c.tracks.length + " 曲)");
+    return true;
+  } catch (e) { return false; }
+}
+
+// ---------- Dropbox API ----------
+async function getAccessToken() {
+  if (accessToken && Date.now() < accessTokenExpiry - 60000) return accessToken;
+  const appKey = els.appKey.value.trim();
+  const refreshToken = els.refreshToken.value.trim();
+  if (!appKey || !refreshToken) throw new Error("App Key と Refresh Token を設定して");
+  const body = new URLSearchParams({
+    grant_type: "refresh_token",
+    refresh_token: refreshToken,
+    client_id: appKey,
+  });
+  let res;
+  try {
+    res = await fetch("https://api.dropboxapi.com/oauth2/token", {
+      method: "POST",
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      body,
+    });
+  } catch (e) {
+    throw new Error("トークン交換の通信に失敗 (CORS/ネットワーク/Brave Shields の可能性): " + e.message);
+  }
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error("トークン交換エラー HTTP " + res.status + ": " + JSON.stringify(data).slice(0, 300));
+  accessToken = data.access_token;
+  accessTokenExpiry = Date.now() + (data.expires_in || 14400) * 1000;
+  log("Access Token 取得 OK (有効 " + Math.round((data.expires_in || 14400) / 60) + " 分)");
+  return accessToken;
+}
+
+async function apiPost(url, jsonBody) {
+  const token = await getAccessToken();
+  const res = await fetch(url, {
+    method: "POST",
+    headers: { "Authorization": "Bearer " + token, "Content-Type": "application/json" },
+    body: JSON.stringify(jsonBody),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error("API エラー HTTP " + res.status + " (" + url.split("/").pop() + "): " + JSON.stringify(data).slice(0, 300));
+  return data;
+}
+
+async function listAudioFiles() {
+  const path = normalizeFolderPath(els.folderPath.value);
+  let entries = [];
+  let page = await apiPost("https://api.dropboxapi.com/2/files/list_folder", {
+    path, recursive: false, include_deleted: false, include_media_info: false,
+  });
+  entries = entries.concat(page.entries || []);
+  while (page.has_more) {
+    page = await apiPost("https://api.dropboxapi.com/2/files/list_folder/continue", { cursor: page.cursor });
+    entries = entries.concat(page.entries || []);
+  }
+  return entries
+    .filter(e => e[".tag"] === "file" && AUDIO_EXTS.has((e.name.split(".").pop() || "").toLowerCase()))
+    .map(e => ({ name: e.name, pathDisplay: e.path_display, pathLower: e.path_lower, size: e.size }))
+    .sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true }));
+}
+
+async function getTemporaryLink(track) {
+  const cached = linkCache.get(track.pathLower);
+  if (cached && Date.now() - cached.fetchedAt < LINK_TTL_MS) return cached.url;
+  const data = await apiPost("https://api.dropboxapi.com/2/files/get_temporary_link", { path: track.pathLower });
+  linkCache.set(track.pathLower, { url: data.link, fetchedAt: Date.now() });
+  return data.link;
+}
+
+// ---------- ★・タグ・絞り込み ----------
+function isFav(track) { return library.favs.includes(track.pathLower); }
+function tagsOf(track) { return library.tags[track.pathLower] || []; }
+
+function allTagNames() {
+  const set = new Set();
+  for (const t of allTracks) for (const tag of tagsOf(t)) set.add(tag);
+  return [...set].sort();
+}
+
+function applyFilter() {
+  if (filter.type === "fav") visibleTracks = allTracks.filter(isFav);
+  else if (filter.type === "tag") visibleTracks = allTracks.filter(t => tagsOf(t).includes(filter.tag));
+  else visibleTracks = allTracks.slice();
+  // 対象タグが消えたら全曲に戻す
+  if (filter.type === "tag" && !allTagNames().includes(filter.tag)) {
+    filter = { type: "all", tag: null };
+    visibleTracks = allTracks.slice();
+  }
+  renderChips();
+  renderTrackList();
+  updateQueueInfo();
+}
+
+function renderChips() {
+  els.chips.innerHTML = "";
+  const mk = (label, active, onclick) => {
+    const b = document.createElement("button");
+    b.textContent = label;
+    if (active) b.className = "on";
+    b.addEventListener("click", onclick);
+    els.chips.appendChild(b);
+  };
+  mk("全曲", filter.type === "all", () => { filter = { type: "all", tag: null }; applyFilter(); });
+  mk("★ お気に入り", filter.type === "fav", () => { filter = { type: "fav", tag: null }; applyFilter(); });
+  for (const tag of allTagNames()) {
+    mk("# " + tag, filter.type === "tag" && filter.tag === tag,
+      () => { filter = { type: "tag", tag }; applyFilter(); });
+  }
+}
+
+function updateQueueInfo() {
+  const f = filter.type === "all" ? "全曲" : filter.type === "fav" ? "★" : "# " + filter.tag;
+  let msg = `表示中: ${visibleTracks.length} 曲 (${f})`;
+  if (queue.length) msg += ` / 再生キュー: ${queue.length} 曲`;
+  els.queueInfo.textContent = msg;
+}
+
+function currentTrack() {
+  if (cursor < 0 || cursor >= order.length) return null;
+  return queue[order[cursor]] || null;
+}
+
+function renderTrackList() {
+  const cur = currentTrack();
+  els.tracks.innerHTML = "";
+  visibleTracks.forEach((t, vi) => {
+    const li = document.createElement("li");
+    if (cur && t.pathLower === cur.pathLower) li.className = "playing";
+
+    const star = document.createElement("button");
+    star.className = "iconbtn" + (isFav(t) ? " on" : "");
+    star.textContent = isFav(t) ? "★" : "☆";
+    star.setAttribute("aria-label", "お気に入り");
+    star.addEventListener("click", () => {
+      if (isFav(t)) library.favs = library.favs.filter(p => p !== t.pathLower);
+      else library.favs.push(t.pathLower);
+      saveLibrary();
+      log((isFav(t) ? "★ を付けた: " : "★ を外した: ") + t.name);
+      applyFilter();
+    });
+
+    const name = document.createElement("span");
+    name.className = "tname";
+    const titleSpan = document.createElement("span");
+    titleSpan.textContent = (cur && t.pathLower === cur.pathLower ? "▶ " : "") + titleOf(t);
+    name.appendChild(titleSpan);
+    const tags = tagsOf(t);
+    if (tags.length) {
+      const ts = document.createElement("span");
+      ts.className = "ttags";
+      ts.textContent = tags.map(x => "# " + x).join("  ");
+      name.appendChild(ts);
+    }
+    name.addEventListener("click", () => buildQueueAndPlay(vi));
+
+    const tagBtn = document.createElement("button");
+    tagBtn.className = "iconbtn";
+    tagBtn.textContent = "🏷";
+    tagBtn.setAttribute("aria-label", "タグ編集");
+    tagBtn.addEventListener("click", () => openTagEditor(t));
+
+    const size = document.createElement("small");
+    size.textContent = t.size ? (t.size / 1048576).toFixed(1) + " MB" : "";
+
+    li.appendChild(star); li.appendChild(name); li.appendChild(tagBtn); li.appendChild(size);
+    els.tracks.appendChild(li);
+  });
+}
+
+// ---------- タグ編集 ----------
+function openTagEditor(track) {
+  tagTarget = track;
+  els.tagTargetName.textContent = titleOf(track);
+  els.tagEditor.style.display = "block";
+  renderTagChips();
+  els.tagEditor.scrollIntoView({ behavior: "smooth", block: "nearest" });
+}
+function renderTagChips() {
+  els.tagChips.innerHTML = "";
+  if (!tagTarget) return;
+  const tags = tagsOf(tagTarget);
+  if (!tags.length) {
+    els.tagChips.innerHTML = '<span class="hint">タグはまだ無い</span>';
+    return;
+  }
+  for (const tag of tags) {
+    const chip = document.createElement("span");
+    chip.className = "tagchip";
+    const label = document.createElement("span");
+    label.textContent = "# " + tag;
+    const del = document.createElement("button");
+    del.textContent = "✕";
+    del.addEventListener("click", () => {
+      library.tags[tagTarget.pathLower] = tagsOf(tagTarget).filter(x => x !== tag);
+      if (!library.tags[tagTarget.pathLower].length) delete library.tags[tagTarget.pathLower];
+      saveLibrary();
+      log("タグを外した: " + tag + " / " + tagTarget.name);
+      renderTagChips();
+      applyFilter();
+    });
+    chip.appendChild(label); chip.appendChild(del);
+    els.tagChips.appendChild(chip);
+  }
+}
+document.getElementById("addTag").addEventListener("click", () => {
+  if (!tagTarget) return;
+  const v = els.newTag.value.trim();
+  if (!v) return;
+  const cur = tagsOf(tagTarget).slice();
+  if (!cur.includes(v)) cur.push(v);
+  library.tags[tagTarget.pathLower] = cur;
+  saveLibrary();
+  els.newTag.value = "";
+  log("タグを付けた: " + v + " / " + tagTarget.name);
+  renderTagChips();
+  applyFilter();
+});
+document.getElementById("closeTagEditor").addEventListener("click", () => {
+  els.tagEditor.style.display = "none";
+  tagTarget = null;
+});
+
+// ---------- 再生キューと順序 ----------
+function shuffledIndices(n) {
+  const a = [...Array(n).keys()];
+  for (let i = n - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [a[i], a[j]] = [a[j], a[i]];
+  }
+  return a;
+}
+
+function titleOf(track) { return track.name.replace(/\.[^.]+$/, ""); }
+
+function buildQueueAndPlay(visibleIndex) {
+  if (visibleIndex < 0 || visibleIndex >= visibleTracks.length) return;
+  queue = visibleTracks.slice();
+  nextCycleOrder = null;
+  if (shuffleOn) {
+    const startQi = visibleIndex;
+    const rest = shuffledIndices(queue.length).filter(qi => qi !== startQi);
+    order = [startQi, ...rest];
+  } else {
+    order = queue.map((_, i) => i);
+  }
+  cursor = shuffleOn ? 0 : visibleIndex;
+  log(`キュー確定: ${queue.length} 曲 (${shuffleOn ? "シャッフル" : "通常順"}, 絞り込み=${filter.type === "all" ? "全曲" : filter.type === "fav" ? "★" : "# " + filter.tag})`);
+  updateQueueInfo();
+  playCurrent("一覧タップ");
+}
+
+// シャッフル+キューリピート時、次の周の順序を先に決める (先読みと実際を一致させる)
+function ensureNextCycleOrder() {
+  if (nextCycleOrder) return nextCycleOrder;
+  const ord = shuffledIndices(queue.length);
+  if (queue.length > 1) {
+    const lastOfCurrent = queue[order[order.length - 1]];
+    if (queue[ord[0]] === lastOfCurrent) [ord[0], ord[1]] = [ord[1], ord[0]];
+  }
+  nextCycleOrder = ord;
+  return ord;
+}
+
+// 自動送りの「次の1曲」を返す (リピート1曲の時は null)
+function upcomingTrack() {
+  if (!queue.length || cursor < 0) return null;
+  if (cursor + 1 < order.length) return queue[order[cursor + 1]];
+  if (repeatMode === "queue") {
+    if (shuffleOn) return queue[ensureNextCycleOrder()[0]];
+    return queue[order[0]];
+  }
+  return null;
+}
+
+async function playCurrent(why) {
+  const track = currentTrack();
+  if (!track) { log("playCurrent: 曲が無い"); return; }
+  renderTrackList();
+  els.nowTitle.textContent = titleOf(track);
+  try {
+    const wasCached = linkCache.has(track.pathLower) &&
+      Date.now() - linkCache.get(track.pathLower).fetchedAt < LINK_TTL_MS;
+    const url = await getTemporaryLink(track);
+    audio.src = url;
+    await audio.play();
+    log(`再生開始 [キュー ${cursor + 1}/${order.length}] ${track.name} (${why}${wasCached ? ", 先読みリンク使用" : ""})`);
+    updateMediaSession(track);
+    prefetchUpcoming();
+  } catch (e) {
+    log("再生失敗: " + e.message);
+    setStatus("再生失敗: " + e.message);
+  }
+}
+
+// 次の曲のリンクを再生中に先読みする (自動送りの成否を分ける要)
+async function prefetchUpcoming() {
+  if (repeatMode === "one") return; // 同じ曲を繰り返すので先読み不要
+  const next = upcomingTrack();
+  if (!next) return;
+  if (linkCache.has(next.pathLower)) { log("次の曲は先読み済み: " + next.name); return; }
+  try {
+    await getTemporaryLink(next);
+    log("次の曲を先読みした: " + next.name);
+  } catch (e) {
+    log("先読み失敗: " + e.message);
+  }
+}
+
+// auto=true の時だけリピート1曲が効く。手動の次へは常に前進する
+async function advance(auto, why) {
+  if (!queue.length || cursor < 0) return;
+  if (auto && repeatMode === "one") {
+    audio.currentTime = 0;
+    try {
+      await audio.play();
+      log("1曲リピート: " + (currentTrack() || {}).name);
+    } catch (e) { log("1曲リピート失敗: " + e.message); }
+    return;
+  }
+  if (cursor + 1 < order.length) {
+    cursor++;
+  } else if (repeatMode === "queue" && queue.length) {
+    if (shuffleOn) { order = ensureNextCycleOrder(); nextCycleOrder = null; log("シャッフルで新しい周に入る"); }
+    cursor = 0;
+    log("キューを一周して先頭に戻る");
+  } else {
+    log("キューの最後。ここまで");
+    setStatus("最後の曲が終わったよ");
+    return;
+  }
+  playCurrent(why || (auto ? "自動送り" : "手動/次へ"));
+}
+
+function goPrev(why) {
+  if (audio.currentTime > 3 || cursor <= 0) {
+    audio.currentTime = 0;
+    log("曲の先頭に戻る");
+    return;
+  }
+  cursor--;
+  playCurrent(why || "手動/前へ");
+}
+
+function updateMediaSession(track) {
+  if (!("mediaSession" in navigator)) { log("Media Session API が無い環境"); return; }
+  navigator.mediaSession.metadata = new MediaMetadata({
+    title: titleOf(track), artist: "Dropbox", album: els.folderPath.value.trim(),
+  });
+  navigator.mediaSession.setActionHandler("play", () => { audio.play(); });
+  navigator.mediaSession.setActionHandler("pause", () => { audio.pause(); });
+  navigator.mediaSession.setActionHandler("previoustrack", () => { goPrev("ロック画面/前へ"); });
+  navigator.mediaSession.setActionHandler("nexttrack", () => { advance(false, "ロック画面/次へ"); });
+  try {
+    navigator.mediaSession.setActionHandler("seekto", (d) => {
+      if (d.seekTime != null) audio.currentTime = d.seekTime;
+    });
+  } catch (e) { /* seekto 非対応環境では無視 */ }
+}
+
+// ---------- 再生モードの切替 ----------
+function renderModeButtons() {
+  els.shuffleBtn.textContent = "🔀 シャッフル: " + (shuffleOn ? "ON" : "OFF");
+  els.shuffleBtn.className = shuffleOn ? "on" : "";
+  const labels = { off: "なし", queue: "キュー全体", one: "1曲" };
+  els.repeatBtn.textContent = (repeatMode === "one" ? "🔂" : "🔁") + " リピート: " + labels[repeatMode];
+  els.repeatBtn.className = repeatMode !== "off" ? "on" : "";
+}
+els.shuffleBtn.addEventListener("click", () => {
+  shuffleOn = !shuffleOn;
+  savePlayerPrefs();
+  renderModeButtons();
+  log("シャッフル " + (shuffleOn ? "ON" : "OFF"));
+  // 再生中なら現在の曲を軸に順序を組み直す
+  const cur = currentTrack();
+  if (cur && queue.length) {
+    const curQi = queue.indexOf(cur);
+    if (shuffleOn) {
+      order = [curQi, ...shuffledIndices(queue.length).filter(qi => qi !== curQi)];
+      cursor = 0;
+    } else {
+      order = queue.map((_, i) => i);
+      cursor = curQi;
+    }
+    nextCycleOrder = null;
+    prefetchUpcoming();
+  }
+});
+els.repeatBtn.addEventListener("click", () => {
+  repeatMode = repeatMode === "off" ? "queue" : repeatMode === "queue" ? "one" : "off";
+  savePlayerPrefs();
+  renderModeButtons();
+  log("リピートモード: " + repeatMode);
+  prefetchUpcoming();
+});
+
+// audio イベント
+audio.addEventListener("playing", () => { els.playBtn.textContent = "⏸"; log("event: playing"); });
+audio.addEventListener("pause", () => { els.playBtn.textContent = "▶"; log("event: pause"); });
+audio.addEventListener("ended", () => {
+  log("event: ended → 自動送りへ");
+  advance(true, "自動送り");
+});
+audio.addEventListener("error", () => {
+  const err = audio.error;
+  log("event: audio error code=" + (err ? err.code : "?") + " " + (err ? err.message || "" : ""));
+});
+audio.addEventListener("timeupdate", () => {
+  if (audio.duration && isFinite(audio.duration)) {
+    els.seek.value = String(Math.round((audio.currentTime / audio.duration) * 1000));
+    els.curTime.textContent = fmtTime(audio.currentTime);
+    els.durTime.textContent = fmtTime(audio.duration);
+    if ("mediaSession" in navigator && "setPositionState" in navigator.mediaSession) {
+      try {
+        navigator.mediaSession.setPositionState({
+          duration: audio.duration, position: audio.currentTime, playbackRate: audio.playbackRate,
+        });
+      } catch (e) { /* 値域外などは無視 */ }
+    }
+  }
+});
+document.addEventListener("visibilitychange", () => {
+  log("event: visibility → " + document.visibilityState + " (再生中=" + !audio.paused + ")");
+});
+
+// UI 操作
+els.seek.addEventListener("input", () => {
+  if (audio.duration && isFinite(audio.duration)) {
+    audio.currentTime = (Number(els.seek.value) / 1000) * audio.duration;
+  }
+});
+els.playBtn.addEventListener("click", async () => {
+  if (audio.src) { audio.paused ? audio.play() : audio.pause(); }
+  else if (visibleTracks.length) { buildQueueAndPlay(0); }
+});
+document.getElementById("nextBtn").addEventListener("click", () => advance(false, "手動/次へ"));
+document.getElementById("prevBtn").addEventListener("click", () => goPrev("手動/前へ"));
+document.getElementById("toEndBtn").addEventListener("click", () => {
+  if (audio.duration && isFinite(audio.duration)) {
+    audio.currentTime = Math.max(0, audio.duration - 15);
+    log("テスト用ジャンプ: 残り15秒へ");
+  }
+});
+
+// ---------- 一覧取得 (手動・起動時自動の共通処理) ----------
+async function refreshList(auto) {
+  setStatus(auto ? "最新のリストを取得中…" : "読み込み中…");
+  try {
+    allTracks = await listAudioFiles();
+    saveListCache();
+    // 再生中 (audio.src あり) は進行中のキューを壊さない
+    if (!audio.src) { queue = []; order = []; cursor = -1; nextCycleOrder = null; }
+    applyFilter();
+    setStatus(allTracks.length + " 曲見つかった" + (auto ? "（自動更新）" : ""));
+    log("一覧取得 OK (" + (auto ? "自動" : "手動") + "): " + allTracks.length + " 曲");
+    if (!allTracks.length) setStatus("このフォルダに音声ファイルが無いみたい。パスを確認して");
+  } catch (e) {
+    const keep = allTracks.length ? "（前回のリストで再生はできる）" : "";
+    setStatus("読み込み失敗: " + e.message + keep);
+    log("一覧取得失敗 (" + (auto ? "自動" : "手動") + "): " + e.message + keep);
+  }
+}
+
+document.getElementById("loadTracks").addEventListener("click", () => {
+  saveSettings();
+  refreshList(false);
+});
+
+function fmtTime(sec) {
+  if (!isFinite(sec) || sec < 0) return "0:00";
+  const t = Math.floor(sec);
+  return Math.floor(t / 60) + ":" + String(t % 60).padStart(2, "0");
+}
+
+// iOS 16.4+ の Audio Session 指定 (対応環境のみ)
+try {
+  if ("audioSession" in navigator) { navigator.audioSession.type = "playback"; log("navigator.audioSession = playback を設定"); }
+} catch (e) { /* 非対応は無視 */ }
+
+loadSettings();
+loadLibrary();
+loadPlayerPrefs();
+renderModeButtons();
+log("DropTunes Web v2.1 起動。UA: " + navigator.userAgent.slice(0, 90));
+// 前回のリストがあれば即表示し、設定済みなら裏で最新化する
+if (loadListCache()) setStatus("前回のリストを表示中");
+if (els.appKey.value.trim() && els.refreshToken.value.trim()) {
+  refreshList(true); // await しない: 失敗しても前回のリストで再生できる
+}
+</script>
+</body>
+</html>
