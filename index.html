@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<title>DropTunes Web v2.3</title>
+<title>DropTunes Web v2.4</title>
 <style>
   :root { color-scheme: dark; }
   * { box-sizing: border-box; }
@@ -51,6 +51,15 @@
     border-radius: 999px; padding: 4px 10px; font-size: 12px; margin: 0 4px 6px 0;
   }
   #tagEditor .tagchip button { padding: 0 4px; background: transparent; color: #f88; font-size: 12px; }
+  #eqEditor {
+    display: none; position: fixed; left: 10px; right: 10px; bottom: 126px; z-index: 60;
+    padding: 12px; border: 1px solid #3a3a46; border-radius: 12px; background: #1b1b22;
+    box-shadow: 0 10px 34px rgba(0,0,0,.65); max-height: 55vh; overflow-y: auto;
+  }
+  .eqband { display: flex; align-items: center; gap: 8px; margin-top: 10px; }
+  .eqband label { width: 52px; font-size: 12px; color: #9aa; margin: 0; }
+  .eqband input[type="range"] { flex: 1; }
+  .eqband .val { width: 56px; text-align: right; font-size: 12px; color: #ccc; }
   #player {
     position: fixed; left: 0; right: 0; bottom: 0; padding: 8px 12px calc(8px + env(safe-area-inset-bottom));
     background: rgba(22,22,28,.96); border-top: 1px solid #2c2c35;
@@ -75,7 +84,7 @@
 </head>
 <body>
 <header>
-  <h1>DropTunes Web v2.3</h1>
+  <h1>DropTunes Web v2.4</h1>
   <p class="hint">Brave の<b>タブ</b>で開いたまま使う前提。シャッフル／リピート／★・タグ絞り込み対応。</p>
 </header>
 <main>
@@ -139,23 +148,44 @@
     <button id="playBtn" aria-label="再生/停止">▶</button>
     <button id="nextBtn" aria-label="次へ">⏭</button>
     <button id="repeatBtn" class="mode" aria-label="リピート切替">🔁</button>
+    <button id="eqBtn" class="mode" aria-label="イコライザ">EQ</button>
   </div>
 </div>
 
-<!-- 再生はこの単一の <audio> 要素だけが担う (Web Audio API は使わない) -->
+<div id="eqEditor">
+  <div class="row" style="justify-content:space-between">
+    <div style="font-size:13px">イコライザ（実験モード）</div>
+    <div class="row">
+      <button id="eqToggle" class="small">OFF（タップでON）</button>
+      <button id="eqReset" class="small secondary">フラット</button>
+      <button id="closeEq" class="small secondary">閉じる</button>
+    </div>
+  </div>
+  <div id="eqBands"></div>
+  <div class="row" style="margin-top:10px">
+    <span style="font-size:12px; color:#9aa">プリセット:</span>
+    <button class="small secondary" data-preset="bass">ベース</button>
+    <button class="small secondary" data-preset="vocal">ボーカル</button>
+    <button class="small secondary" data-preset="treble">トレブル</button>
+  </div>
+  <p class="hint">EQ は通常の再生経路とは別の要素＋Web Audio を使う実験機能。ロック中の継続や自動送りは未保証で、音が出ない場合は Dropbox 側の CORS 制限の可能性がある。OFF にすれば通常経路へ戻る。</p>
+</div>
+
+<!-- 通常再生はこの <audio> 要素 (Web Audio API は使わない)。EQ実験モード専用にもう1つ用意し、経路を隔離する -->
 <audio id="audio" preload="auto"></audio>
+<audio id="audioEq" preload="auto" crossorigin="anonymous"></audio>
 
 <script>
 "use strict";
 /* ============================================================
-   DropTunes Web v2.3
+   DropTunes Web v2.4
    v1 の実績ある再生経路 (単一 <audio> 要素 + 先読み + Media Session) は不変。
    v2 の追加はすべて「キューの組み立て」と「絞り込み」の層だけ:
    - シャッフル (履歴を戻れる順序方式、再一周時は直前曲の連続を回避)
    - リピート3段階 (なし / キュー全体 / 1曲)
    - ★ とタグ (localStorage、パス紐付け) による絞り込み
    - 再生キュー = 曲をタップした時点で表示されていた絞り込み結果のスナップショット
-   v2.3 の追加は「起動まわり」だけ:
+   v2.4 の追加は「起動まわり」だけ:
    - 前回の曲リストを localStorage にキャッシュし、開いた瞬間に即表示する
    - 設定 (App Key / Refresh Token) があれば裏で自動的に最新化する
    - 自動更新に失敗しても前回のリストが残り、そのまま再生できる
@@ -166,6 +196,7 @@ const LS_KEY = "droptunes-web-settings-v1";
 const LS_LIB = "droptunes-web-library-v1";
 const LS_PLAYER = "droptunes-web-player-v1";
 const LS_LISTCACHE = "droptunes-web-listcache-v1";
+const LS_EQ = "droptunes-web-eq-v1";
 
 const els = {
   appKey: document.getElementById("appKey"),
@@ -182,6 +213,10 @@ const els = {
   playBtn: document.getElementById("playBtn"),
   shuffleBtn: document.getElementById("shuffleBtn"),
   repeatBtn: document.getElementById("repeatBtn"),
+  eqBtn: document.getElementById("eqBtn"),
+  eqEditor: document.getElementById("eqEditor"),
+  eqToggle: document.getElementById("eqToggle"),
+  eqBands: document.getElementById("eqBands"),
   log: document.getElementById("log"),
   settingsBox: document.getElementById("settingsBox"),
   tagEditor: document.getElementById("tagEditor"),
@@ -189,7 +224,9 @@ const els = {
   tagChips: document.getElementById("tagChips"),
   newTag: document.getElementById("newTag"),
 };
-const audio = document.getElementById("audio");
+const audioNormal = document.getElementById("audio");
+const audioEqEl = document.getElementById("audioEq");
+let audio = audioNormal; // 現在アクティブな再生要素 (EQ実験モードで切替わる)
 
 let allTracks = [];        // フォルダ内の全曲 {name, pathDisplay, pathLower, size}
 let visibleTracks = [];    // 現在の絞り込み結果
@@ -570,6 +607,7 @@ function upcomingTrack() {
 async function playCurrent(why) {
   const track = currentTrack();
   if (!track) { log("playCurrent: 曲が無い"); return; }
+  ensureAudioRoute();
   renderTrackList();
   els.nowTitle.textContent = titleOf(track);
   try {
@@ -652,6 +690,171 @@ function updateMediaSession(track) {
   } catch (e) { /* seekto 非対応環境では無視 */ }
 }
 
+// ---------- イコライザ (実験モード) ----------
+// 通常経路 (audioNormal) には一切触らない。EQ 専用要素 audioEqEl だけを
+// Web Audio のグラフに通し、アクティブ要素を切り替えることで経路を隔離する。
+// OFF に戻せば通常要素での再生に復帰する (ページ再読込も不要)。
+const EQ_BANDS = [
+  { label: "60 Hz", f: 60, type: "lowshelf" },
+  { label: "250 Hz", f: 250, type: "peaking" },
+  { label: "1 kHz", f: 1000, type: "peaking" },
+  { label: "4 kHz", f: 4000, type: "peaking" },
+  { label: "12 kHz", f: 12000, type: "highshelf" },
+];
+const EQ_PRESETS = {
+  flat: [0, 0, 0, 0, 0],
+  bass: [5, 3, 0, 0, 0],
+  vocal: [-2, 0, 2, 3, 0],
+  treble: [0, 0, 0, 3, 5],
+};
+let eqEnabled = false;
+let eqGains = [0, 0, 0, 0, 0];
+let audioCtx = null;
+let eqFilters = [];
+let eqReady = false;
+const eqSliders = [];
+const eqVals = [];
+
+function loadEqPrefs() {
+  try {
+    const s = JSON.parse(localStorage.getItem(LS_EQ) || "{}");
+    if (typeof s.enabled === "boolean") eqEnabled = s.enabled;
+    if (Array.isArray(s.gains) && s.gains.length === 5) eqGains = s.gains.map(Number);
+  } catch (e) { /* 既定値 */ }
+}
+function saveEqPrefs() {
+  localStorage.setItem(LS_EQ, JSON.stringify({ enabled: eqEnabled, gains: eqGains }));
+}
+
+function initEqGraph() {
+  if (eqReady) return true;
+  try {
+    const AC = window.AudioContext || window.webkitAudioContext;
+    if (!AC) throw new Error("このブラウザは Web Audio 非対応");
+    audioCtx = new AC();
+    const src = audioCtx.createMediaElementSource(audioEqEl);
+    eqFilters = EQ_BANDS.map((b, i) => {
+      const flt = audioCtx.createBiquadFilter();
+      flt.type = b.type;
+      flt.frequency.value = b.f;
+      if (b.type === "peaking") flt.Q.value = 1;
+      flt.gain.value = eqGains[i];
+      return flt;
+    });
+    let node = src;
+    for (const f of eqFilters) { node.connect(f); node = f; }
+    node.connect(audioCtx.destination);
+    eqReady = true;
+    log("EQグラフ初期化 OK (AudioContext " + audioCtx.sampleRate + " Hz)");
+    return true;
+  } catch (e) {
+    log("EQ初期化失敗: " + e.message);
+    return false;
+  }
+}
+
+function applyEqGains() { eqFilters.forEach((f, i) => { f.gain.value = eqGains[i]; }); }
+
+function switchActiveAudio(target) {
+  if (target === audio) return;
+  const old = audio;
+  const wasPlaying = !!old.src && !old.paused;
+  const t = old.currentTime || 0;
+  const srcUrl = old.src;
+  old.pause();
+  audio = target;
+  log("再生経路を切替: " + (target === audioEqEl ? "EQ (実験)" : "通常"));
+  if (srcUrl) {
+    audio.src = srcUrl;
+    const restore = () => { try { audio.currentTime = t; } catch (e) { /* 範囲外は無視 */ } };
+    if (audio.readyState >= 1) restore();
+    else audio.addEventListener("loadedmetadata", restore, { once: true });
+    if (wasPlaying) audio.play().catch(e => log("切替後の再生再開に失敗: " + e.message));
+  }
+  els.playBtn.textContent = wasPlaying ? "⏸" : "▶";
+}
+
+// 再生開始前に、EQ設定と実際の経路を一致させる (playCurrent から呼ぶ)
+function ensureAudioRoute() {
+  if (eqEnabled) {
+    if (!eqReady && !initEqGraph()) {
+      eqEnabled = false; saveEqPrefs(); renderEq();
+      log("EQを使えないため通常経路で再生する");
+      return;
+    }
+    if (audioCtx && audioCtx.state === "suspended") audioCtx.resume();
+    if (audio !== audioEqEl) switchActiveAudio(audioEqEl);
+  } else if (audio !== audioNormal) {
+    switchActiveAudio(audioNormal);
+  }
+}
+
+function setEqEnabled(on) {
+  if (on) {
+    if (!initEqGraph()) { setStatus("EQを初期化できなかった。通常経路のまま再生するよ"); renderEq(); return; }
+    if (audioCtx.state === "suspended") audioCtx.resume();
+    eqEnabled = true; saveEqPrefs();
+    switchActiveAudio(audioEqEl);
+    log("EQ ON (実験経路)");
+  } else {
+    eqEnabled = false; saveEqPrefs();
+    switchActiveAudio(audioNormal);
+    if (audioCtx && eqReady) audioCtx.suspend();
+    log("EQ OFF (通常経路)");
+  }
+  renderEq();
+}
+
+function buildEqUI() {
+  els.eqBands.innerHTML = "";
+  eqSliders.length = 0; eqVals.length = 0;
+  EQ_BANDS.forEach((b, i) => {
+    const row = document.createElement("div");
+    row.className = "eqband";
+    const lab = document.createElement("label");
+    lab.textContent = b.label;
+    const slider = document.createElement("input");
+    slider.type = "range"; slider.min = "-12"; slider.max = "12"; slider.step = "0.5";
+    slider.value = String(eqGains[i]);
+    const val = document.createElement("span");
+    val.className = "val";
+    slider.addEventListener("input", () => {
+      eqGains[i] = Number(slider.value);
+      if (eqFilters[i]) eqFilters[i].gain.value = eqGains[i];
+      val.textContent = fmtGain(eqGains[i]);
+      saveEqPrefs();
+    });
+    row.appendChild(lab); row.appendChild(slider); row.appendChild(val);
+    els.eqBands.appendChild(row);
+    eqSliders.push(slider); eqVals.push(val);
+  });
+}
+function fmtGain(g) { return (g > 0 ? "+" : "") + g.toFixed(1) + " dB"; }
+
+function renderEq() {
+  els.eqBtn.className = "mode" + (eqEnabled ? " on" : "");
+  els.eqToggle.textContent = eqEnabled ? "ON（タップでOFF）" : "OFF（タップでON）";
+  eqSliders.forEach((s, i) => { s.value = String(eqGains[i]); eqVals[i].textContent = fmtGain(eqGains[i]); });
+}
+
+function applyEqPreset(name) {
+  eqGains = EQ_PRESETS[name].slice();
+  applyEqGains();
+  saveEqPrefs();
+  renderEq();
+  log("EQプリセット適用: " + name + " [" + eqGains.join(", ") + "]");
+}
+
+els.eqBtn.addEventListener("click", () => {
+  els.eqEditor.style.display = els.eqEditor.style.display === "block" ? "none" : "block";
+});
+els.eqToggle.addEventListener("click", () => setEqEnabled(!eqEnabled));
+document.getElementById("eqReset").addEventListener("click", () => applyEqPreset("flat"));
+document.getElementById("closeEq").addEventListener("click", () => { els.eqEditor.style.display = "none"; });
+document.querySelectorAll("#eqEditor [data-preset]").forEach(b => {
+  b.addEventListener("click", () => applyEqPreset(b.getAttribute("data-preset")));
+});
+
 // ---------- 再生モードの切替 ----------
 function renderModeButtons() {
   // アイコンのみ表示 (1行レイアウト)。状態は色で示す: ON=青、リピート1曲は 🔂
@@ -688,31 +891,46 @@ els.repeatBtn.addEventListener("click", () => {
   prefetchUpcoming();
 });
 
-// audio イベント
-audio.addEventListener("playing", () => { els.playBtn.textContent = "⏸"; log("event: playing"); });
-audio.addEventListener("pause", () => { els.playBtn.textContent = "▶"; log("event: pause"); });
-audio.addEventListener("ended", () => {
-  log("event: ended → 自動送りへ");
-  advance(true, "自動送り");
-});
-audio.addEventListener("error", () => {
-  const err = audio.error;
-  log("event: audio error code=" + (err ? err.code : "?") + " " + (err ? err.message || "" : ""));
-});
-audio.addEventListener("timeupdate", () => {
-  if (audio.duration && isFinite(audio.duration)) {
-    els.seek.value = String(Math.round((audio.currentTime / audio.duration) * 1000));
-    els.curTime.textContent = fmtTime(audio.currentTime);
-    els.durTime.textContent = fmtTime(audio.duration);
-    if ("mediaSession" in navigator && "setPositionState" in navigator.mediaSession) {
-      try {
-        navigator.mediaSession.setPositionState({
-          duration: audio.duration, position: audio.currentTime, playbackRate: audio.playbackRate,
-        });
-      } catch (e) { /* 値域外などは無視 */ }
+// audio イベント (通常/EQ の両要素に同じハンドラを付け、アクティブな要素のものだけ処理する)
+function attachAudioHandlers(el) {
+  el.addEventListener("playing", () => {
+    if (el !== audio) return;
+    els.playBtn.textContent = "⏸";
+    log("event: playing" + (el === audioEqEl ? " (EQ経路)" : ""));
+  });
+  el.addEventListener("pause", () => {
+    if (el !== audio) return;
+    els.playBtn.textContent = "▶";
+    log("event: pause");
+  });
+  el.addEventListener("ended", () => {
+    if (el !== audio) return;
+    log("event: ended → 自動送りへ");
+    advance(true, "自動送り");
+  });
+  el.addEventListener("error", () => {
+    const err = el.error;
+    log("event: audio error (" + (el === audioEqEl ? "EQ" : "通常") + ") code=" + (err ? err.code : "?") + " " + (err ? err.message || "" : ""));
+    if (el === audioEqEl && eqEnabled) log("EQ経路でエラー。Dropbox 側の CORS 制限の可能性がある");
+  });
+  el.addEventListener("timeupdate", () => {
+    if (el !== audio) return;
+    if (el.duration && isFinite(el.duration)) {
+      els.seek.value = String(Math.round((el.currentTime / el.duration) * 1000));
+      els.curTime.textContent = fmtTime(el.currentTime);
+      els.durTime.textContent = fmtTime(el.duration);
+      if ("mediaSession" in navigator && "setPositionState" in navigator.mediaSession) {
+        try {
+          navigator.mediaSession.setPositionState({
+            duration: el.duration, position: el.currentTime, playbackRate: el.playbackRate,
+          });
+        } catch (e) { /* 値域外などは無視 */ }
+      }
     }
-  }
-});
+  });
+}
+attachAudioHandlers(audioNormal);
+attachAudioHandlers(audioEqEl);
 document.addEventListener("visibilitychange", () => {
   log("event: visibility → " + document.visibilityState + " (再生中=" + !audio.paused + ")");
 });
@@ -772,8 +990,12 @@ try {
 loadSettings();
 loadLibrary();
 loadPlayerPrefs();
+loadEqPrefs();
+buildEqUI();
+renderEq();
 renderModeButtons();
-log("DropTunes Web v2.3 起動。UA: " + navigator.userAgent.slice(0, 90));
+log("DropTunes Web v2.4 起動。UA: " + navigator.userAgent.slice(0, 90));
+if (eqEnabled) log("EQ設定は ON 保存済み (再生開始時に実験経路へ切り替わる)");
 // 前回のリストがあれば即表示し、設定済みなら裏で最新化する
 if (loadListCache()) setStatus("前回のリストを表示中");
 if (els.appKey.value.trim() && els.refreshToken.value.trim()) {
